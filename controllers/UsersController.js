@@ -1,81 +1,63 @@
-import { ObjectId } from 'mongodb';
-import sha1 from 'sha1';
-import Queue from 'bull';
-import dbClient from '../utils/db';
-import userUtils from '../utils/user';
+import Bull from 'bull';
+import User from '../utils/users';
 
-const userQueue = new Queue('userQueue');
+const userQueue = new Bull('userQueue');
 
+/* The AppController for retrieving the status and statistics of a
+dbs and Redis client. */
 class UsersController {
   /**
-   * Creates a user using email and password
-   *
-   * To create a user, you must specify an email and a password.
-   * If the email is missing, return an error "Missing email" with
-   * a status code 400.
-   */
+     * The function retrieves the post of users
+     * sends the result as a response.
+     * @param request - The request parameter is an object that contains
+     * @param response - The `response` parameter is an object
+ */
   static async postNew(request, response) {
     const { email, password } = request.body;
-
     if (!email) {
-      return response.status(400).json({ error: 'Missing email' });
+      return response.status(400).send({ error: 'Missing email' });
     }
-
     if (!password) {
-      return response.status(400).json({ error: 'Missing password' });
+      return response.status(400).send({ error: 'Missing password' });
     }
-
-    const emailExists = await dbClient.usersCollection.findOne({ email });
-
-    if (emailExists) {
-      return response.status(400).json({ error: 'Already exists' });
-    }
-
-    const sha1Password = sha1(password);
-
     try {
-      const result = await dbClient.usersCollection.insertOne({
-        email,
-        password: sha1Password,
-      });
+      const us = new User();
+      const userp = await us.findUserByEmail(email);
+      if (userp) {
+        return response.status(400).send({ error: 'Already exist' });
+      }
 
-      const user = {
-        id: result.insertedId,
-        email,
-      };
-
+      const id = await us.createUser(email, password);
+      const result = { id, email };
       await userQueue.add({
-        userId: result.insertedId.toString(),
+        userId: id,
       });
-
-      return response.status(201).json(user);
-    } catch (err) {
-      await userQueue.add({});
-      return response.status(500).json({ error: 'Error creating user' });
+      return response.status(201).send(result);
+    } catch (error) {
+      return response.status(501).send({ error: 'Internal Server' });
     }
   }
 
   /**
-   * Retrieve the user based on the token
-   *
-   * If not found, return an error "Unauthorized" with a
-   * status code 401.
-   * Otherwise, return the user object (email and id only).
+   * The function retrieves the post of users
+   * sends the result as a response.
+   * @param request - The request parameter is an object that contains
+   * @param response - The `response` parameter is an object
+   * containing the status of the database and Redis client.
    */
   static async getMe(request, response) {
-    const { userId } = await userUtils.getUserIdAndKey(request);
-
-    const user = await userUtils.getUser({
-      _id: ObjectId(userId),
-    });
-
-    if (!user) {
-      return response.status(401).json({ error: 'Unauthorized' });
+    const token = request.headers['x-token'];
+    if (!token) {
+      response.status(401).send({ error: 'Unauthorized' });
+    } else {
+      const us = new User();
+      const user = await us.findByToken(token);
+      if (!user) {
+        response.status(401).send({ error: 'Unauthorized' });
+      } else {
+        response.status(200).send({ id: user._id, email: user.email });
+      }
     }
-
-    const processedUser = { id: user._id, email: user.email };
-
-    return response.status(200).json(processedUser);
   }
 }
 

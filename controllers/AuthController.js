@@ -1,69 +1,45 @@
 import { v4 as uuidv4 } from 'uuid';
-import sha1 from 'sha1';
+import BasicAuth from '../utils/basicAuth';
 import redisClient from '../utils/redis';
-import userUtils from '../utils/user';
 
+/**
+ * The AppController for retrieving the status and statistics of a
+ */
 class AuthController {
   /**
-   * Sign-in the user by generating a new authentication token
-   *
-   * Using the Basic auth technique, find the user associated with the email and password.
-   * If no user is found, return an error "Unauthorized" with status code 401.
-   * Otherwise:
-   * - Generate a random token using uuidv4.
-   * - Create a Redis key: "auth_<token>" and store the user ID for 24 hours.
-   * - Return the token: { "token": "155342df-2399-41da-9e8c-458b6ac52a0c" }
-   *   with status code 200.
+   * The function retrieves the post of users
+   * @param {*} req
+   * @param {*} res
    */
-  static async getConnect(request, response) {
-    const Authorization = request.header('Authorization') || '';
-    const credentials = Authorization.split(' ')[1];
-
-    if (!credentials) {
-      return response.status(401).json({ error: 'Unauthorized' });
+  static async getConnect(req, res) {
+    const user = await BasicAuth.currentUser(req);
+    if (user) {
+      const token = uuidv4();
+      await redisClient.set(`auth_${token}`, user._id.toString(), 86400);
+      res.status(200).send({ token });
+    } else {
+      res.status(401).send({ error: 'Unauthorized' });
     }
-
-    const decodedCredentials = Buffer.from(credentials, 'base64').toString('utf-8');
-    const [email, password] = decodedCredentials.split(':');
-
-    if (!email || !password) {
-      return response.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const sha1Password = sha1(password);
-    const user = await userUtils.getUser({ email, password: sha1Password });
-
-    if (!user) {
-      return response.status(401).json({ error: 'Unauthorized' });
-    }
-
-    const token = uuidv4();
-    const key = `auth_${token}`;
-    const hoursForExpiration = 24;
-
-    await redisClient.set(key, user._id.toString(), hoursForExpiration * 3600);
-
-    return response.status(200).json({ token });
   }
 
   /**
-   * Sign-out the user based on the token
-   *
-   * Retrieve the user based on the token:
-   * If not found, return an error "Unauthorized" with status code 401.
-   * Otherwise, delete the token in Redis and return nothing with status code 204.
+   * The function retrieves the post of users
+   * sends the result as a response.
+   * @param request - The request parameter is an object that contains
+   * @param response - The `response` parameter is an object
    */
-  static async getDisconnect(request, response) {
-    const { userId, key } = await userUtils.getUserIdAndKey(request);
-
-    if (!userId) {
-      return response.status(401).json({ error: 'Unauthorized' });
+  static async getDisconnect(req, res) {
+    const token = req.headers['x-token'];
+    if (!token) {
+      res.status(401).send({ error: 'Unauthorized' });
     }
-
-    await redisClient.del(key);
-
-    return response.status(204).send();
+    const userId = await redisClient.get(`auth_${token}`);
+    if (!userId) {
+      res.status(401).send({ error: 'Unauthorized' });
+    } else {
+      await redisClient.del(`auth_${token}`);
+      res.status(204).send();
+    }
   }
 }
-
 export default AuthController;

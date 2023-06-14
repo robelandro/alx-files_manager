@@ -20,7 +20,7 @@ class Files {
     this.data = data;
     this.parentId = parentId;
     this.isPublic = isPublic;
-    this.FOLDER_PATH = process.env.FOLDER_PATH || './tmp/files_manager';
+    this.FOLDER_PATH = process.env.FOLDER_PATH || '/tmp/files_manager';
   }
 
   /**
